@@ -42,18 +42,8 @@ class PostCredentials(BaseModel):
     client_secret: str
 
 
-class FormCredentials(
-    RootModel[
-        Annotated[
-            NoneCredentials | PostCredentials,
-            Field(discriminator="client_secret"),
-        ]
-    ]
-):
-    root: Annotated[
-        NoneCredentials | PostCredentials,
-        Field(discriminator="client_secret"),
-    ]
+class FormCredentials(RootModel[PostCredentials | NoneCredentials]):
+    root: PostCredentials | NoneCredentials
 
 
 class BasicCredentials(BaseModel):
