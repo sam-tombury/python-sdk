@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import time
+from base64 import b64decode
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
@@ -19,9 +20,6 @@ class AuthorizationCodeRequest(BaseModel):
     grant_type: Literal["authorization_code"]
     code: str = Field(..., description="The authorization code")
     redirect_uri: AnyUrl | None = Field(None, description="Must be the same as redirect URI provided in /authorize")
-    client_id: str
-    # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
-    client_secret: str | None = None
     # See https://datatracker.ietf.org/doc/html/rfc7636#section-4.5
     code_verifier: str = Field(..., description="PKCE code verifier")
 
@@ -31,9 +29,50 @@ class RefreshTokenRequest(BaseModel):
     grant_type: Literal["refresh_token"]
     refresh_token: str = Field(..., description="The refresh token")
     scope: str | None = Field(None, description="Optional scope parameter")
+
+
+class NoneCredentials(BaseModel):
+    client_id: str
+    client_secret: None = None
+
+
+class PostCredentials(BaseModel):
     client_id: str
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
-    client_secret: str | None = None
+    client_secret: str
+
+
+class FormCredentials(
+    RootModel[
+        Annotated[
+            NoneCredentials | PostCredentials,
+            Field(discriminator="client_secret"),
+        ]
+    ]
+):
+    root: Annotated[
+        NoneCredentials | PostCredentials,
+        Field(discriminator="client_secret"),
+    ]
+
+
+class BasicCredentials(BaseModel):
+    client_id: str
+    client_secret: str
+
+    @classmethod
+    def from_authorization(cls, authorization: str):
+        try:
+            if authorization.startswith("Basic "):
+                [client_id, client_secret] = b64decode(authorization.removeprefix("Basic ")).decode().split(":", 1)
+                return cls(client_id=client_id, client_secret=client_secret)
+        except Exception:
+            # TODO: better error here??
+            return None
+        return None
+
+
+Credentials = NoneCredentials | PostCredentials | BasicCredentials
 
 
 class TokenRequest(
@@ -90,6 +129,21 @@ class TokenHandler:
         try:
             form_data = await request.form()
             token_request = TokenRequest.model_validate(dict(form_data)).root
+            try:
+                credentials = FormCredentials.model_validate(dict(form_data)).root
+            except ValidationError:
+                credentials = (
+                    BasicCredentials.from_authorization(authorization)
+                    if (authorization := request.headers.get("Authorization"))
+                    else None
+                )
+                if not credentials:
+                    return self.response(
+                        TokenErrorResponse(
+                            error="invalid_request",
+                            error_description="missing credentials",
+                        )
+                    )
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
@@ -97,12 +151,20 @@ class TokenHandler:
                     error_description=stringify_pydantic_error(validation_error),
                 )
             )
-
         try:
             client_info = await self.client_authenticator.authenticate(
-                client_id=token_request.client_id,
-                client_secret=token_request.client_secret,
+                client_id=credentials.client_id,
+                client_secret=credentials.client_secret,
             )
+            match client_info.token_endpoint_auth_method:
+                case "none" if not isinstance(credentials, NoneCredentials):
+                    raise AuthenticationError("Invalid credentials for client token_endpoint_auth_method")
+                case "client_secret_post" if not isinstance(credentials, PostCredentials):
+                    raise AuthenticationError("Invalid credentials for client token_endpoint_auth_method")
+                case "client_secret_basic" if not isinstance(credentials, BasicCredentials):
+                    raise AuthenticationError("Invalid credentials for client token_endpoint_auth_method")
+                case _:
+                    pass
         except AuthenticationError as e:
             return self.response(
                 TokenErrorResponse(
@@ -126,7 +188,7 @@ class TokenHandler:
         match token_request:
             case AuthorizationCodeRequest():
                 auth_code = await self.provider.load_authorization_code(client_info, token_request.code)
-                if auth_code is None or auth_code.client_id != token_request.client_id:
+                if auth_code is None or auth_code.client_id != credentials.client_id:
                     # if code belongs to different client, pretend it doesn't exist
                     return self.response(
                         TokenErrorResponse(
@@ -185,7 +247,7 @@ class TokenHandler:
 
             case RefreshTokenRequest():
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
-                if refresh_token is None or refresh_token.client_id != token_request.client_id:
+                if refresh_token is None or refresh_token.client_id != credentials.client_id:
                     # if token belongs to different client, pretend it doesn't exist
                     return self.response(
                         TokenErrorResponse(

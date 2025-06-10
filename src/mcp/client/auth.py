@@ -10,6 +10,7 @@ import logging
 import secrets
 import string
 import time
+from base64 import b64encode
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Protocol
 from urllib.parse import urlencode, urljoin
@@ -359,22 +360,35 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self._get_authorization_base_url(self.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
+        extra_headers = {}
+
         token_data = {
             "grant_type": "authorization_code",
             "code": auth_code,
             "redirect_uri": str(self.client_metadata.redirect_uris[0]),
-            "client_id": client_info.client_id,
             "code_verifier": self._code_verifier,
         }
 
-        if client_info.client_secret:
-            token_data["client_secret"] = client_info.client_secret
+        match client_info.token_endpoint_auth_method:
+            case "none":
+                token_data["client_id"] = client_info.client_id
+            case "client_secret_post" if client_info.client_secret:
+                token_data["client_id"] = client_info.client_id
+                token_data["client_secret"] = client_info.client_secret
+            case "client_secret_basic" if client_info.client_secret:
+                basic = b64encode(
+                    f"{client_info.client_id}:{client_info.client_secret}".encode()
+                ).decode()
+                extra_headers = {"Authorization": f"Basic {basic}"}
+            case _:
+                pass
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 token_url,
                 data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": "application/x-www-form-urlencoded"}
+                | extra_headers,
                 timeout=30.0,
             )
 
@@ -419,21 +433,35 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self._get_authorization_base_url(self.server_url)
             token_url = urljoin(auth_base_url, "/token")
 
+        extra_headers = {}
+
         refresh_data = {
             "grant_type": "refresh_token",
             "refresh_token": self._current_tokens.refresh_token,
             "client_id": client_info.client_id,
         }
 
-        if client_info.client_secret:
-            refresh_data["client_secret"] = client_info.client_secret
+        match client_info.token_endpoint_auth_method:
+            case "none":
+                refresh_data["client_id"] = client_info.client_id
+            case "client_secret_post" if client_info.client_secret:
+                refresh_data["client_id"] = client_info.client_id
+                refresh_data["client_secret"] = client_info.client_secret
+            case "client_secret_basic" if client_info.client_secret:
+                basic = b64encode(
+                    f"{client_info.client_id}:{client_info.client_secret}".encode()
+                ).decode()
+                extra_headers = {"Authorization": f"Basic {basic}"}
+            case _:
+                pass
 
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     token_url,
                     data=refresh_data,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
+                    | extra_headers,
                     timeout=30.0,
                 )
 
