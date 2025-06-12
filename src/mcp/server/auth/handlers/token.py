@@ -32,11 +32,13 @@ class RefreshTokenRequest(BaseModel):
 
 
 class NoneCredentials(BaseModel):
+    auth_method: Literal["none"] = "none"
     client_id: str
     client_secret: None = None
 
 
 class PostCredentials(BaseModel):
+    auth_method: Literal["client_secret_post"] = "client_secret_post"
     client_id: str
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str
@@ -47,6 +49,7 @@ class FormCredentials(RootModel[PostCredentials | NoneCredentials]):
 
 
 class BasicCredentials(BaseModel):
+    auth_method: Literal["client_secret_basic"] = "client_secret_basic"
     client_id: str
     client_secret: str
 
@@ -146,15 +149,8 @@ class TokenHandler:
                 client_id=credentials.client_id,
                 client_secret=credentials.client_secret,
             )
-            match client_info.token_endpoint_auth_method:
-                case "none" if not isinstance(credentials, NoneCredentials):
-                    raise AuthenticationError("Invalid credentials for client token_endpoint_auth_method")
-                case "client_secret_post" if not isinstance(credentials, PostCredentials):
-                    raise AuthenticationError("Invalid credentials for client token_endpoint_auth_method")
-                case "client_secret_basic" if not isinstance(credentials, BasicCredentials):
-                    raise AuthenticationError("Invalid credentials for client token_endpoint_auth_method")
-                case _:
-                    pass
+            if client_info.token_endpoint_auth_method != credentials.auth_method:
+                raise AuthenticationError("Invalid credentials for client token_endpoint_auth_method")
         except AuthenticationError as e:
             return self.response(
                 TokenErrorResponse(
