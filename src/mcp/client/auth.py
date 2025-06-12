@@ -376,9 +376,7 @@ class OAuthClientProvider(httpx.Auth):
                 token_data["client_id"] = client_info.client_id
                 token_data["client_secret"] = client_info.client_secret
             case "client_secret_basic" if client_info.client_secret:
-                basic = b64encode(
-                    f"{client_info.client_id}:{client_info.client_secret}".encode()
-                ).decode()
+                basic = b64encode(f"{client_info.client_id}:{client_info.client_secret}".encode()).decode()
                 extra_headers = {"Authorization": f"Basic {basic}"}
             case _:
                 pass
@@ -387,8 +385,7 @@ class OAuthClientProvider(httpx.Auth):
             response = await client.post(
                 token_url,
                 data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}
-                | extra_headers,
+                headers={"Content-Type": "application/x-www-form-urlencoded"} | extra_headers,
                 timeout=30.0,
             )
 
@@ -448,9 +445,7 @@ class OAuthClientProvider(httpx.Auth):
                 refresh_data["client_id"] = client_info.client_id
                 refresh_data["client_secret"] = client_info.client_secret
             case "client_secret_basic" if client_info.client_secret:
-                basic = b64encode(
-                    f"{client_info.client_id}:{client_info.client_secret}".encode()
-                ).decode()
+                basic = b64encode(f"{client_info.client_id}:{client_info.client_secret}".encode()).decode()
                 extra_headers = {"Authorization": f"Basic {basic}"}
             case _:
                 pass
@@ -460,8 +455,7 @@ class OAuthClientProvider(httpx.Auth):
                 response = await client.post(
                     token_url,
                     data=refresh_data,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"}
-                    | extra_headers,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"} | extra_headers,
                     timeout=30.0,
                 )
 
