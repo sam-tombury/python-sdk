@@ -2,10 +2,12 @@ import base64
 import hashlib
 import time
 from base64 import b64decode
+from binascii import Error as Base64Error
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, RootModel, ValidationError
+from starlette.datastructures import Headers
 from starlette.requests import Request
 
 from mcp.server.auth.errors import stringify_pydantic_error
@@ -54,15 +56,17 @@ class BasicCredentials(BaseModel):
     client_secret: str
 
     @classmethod
-    def from_authorization(cls, authorization: str):
+    def from_headers(cls, headers: Headers):
+        if not (authorization := headers.get("Authorization")):
+            raise AuthenticationError("Missing authorization header")
         try:
-            if authorization.startswith("Basic "):
-                [client_id, client_secret] = b64decode(authorization.removeprefix("Basic ")).decode().split(":", 1)
-                return cls(client_id=client_id, client_secret=client_secret)
-        except Exception:
-            # TODO: better error here??
-            return None
-        return None
+            scheme, credentials = authorization.split(None, 1)
+            if scheme.lower() != "basic":
+                raise AuthenticationError("Expected Basic authentication scheme")
+            client_id, client_secret = b64decode(credentials).decode().split(":", 1)
+            return cls(client_id=client_id, client_secret=client_secret)
+        except ValueError | Base64Error | UnicodeDecodeError:
+            raise AuthenticationError("Invalid Basic authentication credentials") from None
 
 
 Credentials = NoneCredentials | PostCredentials | BasicCredentials
@@ -120,23 +124,12 @@ class TokenHandler:
 
     async def handle(self, request: Request):
         try:
-            form_data = await request.form()
-            token_request = TokenRequest.model_validate(dict(form_data)).root
+            form_data = dict(await request.form())
+            token_request = TokenRequest.model_validate(form_data).root
             try:
-                credentials = FormCredentials.model_validate(dict(form_data)).root
+                credentials = FormCredentials.model_validate(form_data).root
             except ValidationError:
-                credentials = (
-                    BasicCredentials.from_authorization(authorization)
-                    if (authorization := request.headers.get("Authorization"))
-                    else None
-                )
-                if not credentials:
-                    return self.response(
-                        TokenErrorResponse(
-                            error="invalid_request",
-                            error_description="missing credentials",
-                        )
-                    )
+                credentials = BasicCredentials.from_headers(request.headers)
         except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
@@ -144,6 +137,8 @@ class TokenHandler:
                     error_description=stringify_pydantic_error(validation_error),
                 )
             )
+        except AuthenticationError as auth_error:
+            return self.response(TokenErrorResponse(error="invalid_request", error_description=auth_error.message))
         try:
             client_info = await self.client_authenticator.authenticate(
                 client_id=credentials.client_id,
