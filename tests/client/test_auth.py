@@ -888,10 +888,10 @@ def test_build_metadata(
             registration_endpoint=AnyHttpUrl(registration_endpoint),
             scopes_supported=["read", "write", "admin"],
             grant_types_supported=["authorization_code", "refresh_token"],
-            token_endpoint_auth_methods_supported=["client_secret_post"],
+            token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
             service_documentation=AnyHttpUrl(service_documentation_url),
             revocation_endpoint=AnyHttpUrl(revocation_endpoint),
-            revocation_endpoint_auth_methods_supported=["client_secret_post"],
+            revocation_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
             code_challenge_methods_supported=["S256"],
         )
     )
