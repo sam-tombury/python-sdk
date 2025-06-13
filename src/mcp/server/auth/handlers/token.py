@@ -23,7 +23,7 @@ class AuthorizationCodeRequest(BaseModel):
     code: str = Field(..., description="The authorization code")
     redirect_uri: AnyUrl | None = Field(None, description="Must be the same as redirect URI provided in /authorize")
     # See https://datatracker.ietf.org/doc/html/rfc7636#section-4.5
-    code_verifier: str = Field(..., description="PKCE code verifier")
+    code_verifier: str | None = Field(None, description="PKCE code verifier")
 
 
 class RefreshTokenRequest(BaseModel):
@@ -202,18 +202,27 @@ class TokenHandler:
                         )
                     )
 
-                # Verify PKCE code verifier
-                sha256 = hashlib.sha256(token_request.code_verifier.encode()).digest()
-                hashed_code_verifier = base64.urlsafe_b64encode(sha256).decode().rstrip("=")
-
-                if hashed_code_verifier != auth_code.code_challenge:
-                    # see https://datatracker.ietf.org/doc/html/rfc7636#section-4.6
-                    return self.response(
-                        TokenErrorResponse(
-                            error="invalid_grant",
-                            error_description="incorrect code_verifier",
+                if auth_code.code_challenge:
+                    if not token_request.code_verifier:
+                        return self.response(
+                            TokenErrorResponse(
+                                error="invalid_grant",
+                                error_description="missing code_verifier",
+                            )
                         )
-                    )
+
+                    # Verify PKCE code verifier
+                    sha256 = hashlib.sha256(token_request.code_verifier.encode()).digest()
+                    hashed_code_verifier = base64.urlsafe_b64encode(sha256).decode().rstrip("=")
+
+                    if hashed_code_verifier != auth_code.code_challenge:
+                        # see https://datatracker.ietf.org/doc/html/rfc7636#section-4.6
+                        return self.response(
+                            TokenErrorResponse(
+                                error="invalid_grant",
+                                error_description="incorrect code_verifier",
+                            )
+                        )
 
                 try:
                     # Exchange authorization code for tokens

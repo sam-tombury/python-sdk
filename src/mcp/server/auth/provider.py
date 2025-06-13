@@ -10,7 +10,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 class AuthorizationParams(BaseModel):
     state: str | None
     scopes: list[str] | None
-    code_challenge: str
+    code_challenge: str | None
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
 
@@ -20,7 +20,7 @@ class AuthorizationCode(BaseModel):
     scopes: list[str]
     expires_at: float
     client_id: str
-    code_challenge: str
+    code_challenge: str | None
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
 

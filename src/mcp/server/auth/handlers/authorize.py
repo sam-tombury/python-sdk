@@ -28,7 +28,7 @@ class AuthorizationRequest(BaseModel):
 
     # see OAuthClientMetadata; we only support `code`
     response_type: Literal["code"] = Field(..., description="Must be 'code' for authorization code flow")
-    code_challenge: str = Field(..., description="PKCE code challenge")
+    code_challenge: str | None = Field(None, description="PKCE code challenge")
     code_challenge_method: Literal["S256"] = Field("S256", description="PKCE code challenge method, must be S256")
     state: str | None = Field(None, description="Optional state parameter")
     scope: str | None = Field(
